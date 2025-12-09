@@ -1089,6 +1089,7 @@
 <footer>
     <p>GMS Breda v4.0 | Gemeentelijk Meldingen Systeem | © 2024</p>
     <p style="margin-top: 10px;">
+        <!-- Bestaande knoppen -->
         <button onclick="resetAllData()" class="action-btn secondary" style="width: auto;">
             🔥 Alles Resetten
         </button>
@@ -1098,7 +1099,6 @@
         <button onclick="importData()" class="action-btn secondary" style="width: auto; margin-left: 10px;">
             📥 Importeer Data
         </button>
-        <!-- NIEUWE BACKUP KNOppen -->
         <button onclick="backupToFile()" class="action-btn secondary" style="width: auto; margin-left: 10px;">
             💾 Maak Backup
         </button>
@@ -1109,11 +1109,16 @@
             🐛 Test Gebruikers
         </button>
         <button onclick="syncFromGitHub()" class="action-btn secondary" style="width: auto; margin-left: 10px;">
-    🔄 Sync van GitHub
-</button>
-<button onclick="pushToGitHub()" class="action-btn secondary" style="width: auto; margin-left: 10px;">
-    📤 Push naar GitHub
-</button>
+            🔄 Sync van GitHub
+        </button>
+        <button onclick="pushToGitHub()" class="action-btn secondary" style="width: auto; margin-left: 10px;">
+            📤 Push naar GitHub
+        </button>
+        
+        <!-- NIEUWE TEST KNOOP TOEVOEGEN HIER -->
+        <button onclick="testMeldingenAPI()" class="action-btn secondary" style="width: auto; margin-left: 10px;">
+            🧪 Test Meldingen API
+        </button>
     </p>
 </footer>
     </div>
@@ -1171,6 +1176,76 @@
     </div>
 
     <script>
+        // FUNCTIE: LAAD MELDINGEN VAN NETLIFY FUNCTION
+async function loadMeldingenFromAPI() {
+    try {
+        console.log("📥 Meldingen laden van API...");
+        
+        const response = await fetch('/.netlify/functions/get-meldingen');
+        const data = await response.json();
+        
+        if (data.meldingen && data.meldingen.length > 0) {
+            console.log(`✅ ${data.meldingen.length} meldingen geladen van API`);
+            
+            // Merge met lokale meldingen
+            data.meldingen.forEach(apiMelding => {
+                const exists = spraakverzoeken.find(m => m.id === apiMelding.id);
+                if (!exists) {
+                    spraakverzoeken.push(apiMelding);
+                }
+            });
+            
+            loadSpraakverzoeken();
+            saveToLocalStorage();
+        }
+        
+    } catch (error) {
+        console.error("❌ Fout bij laden meldingen:", error);
+    }
+}
+
+// FUNCTIE: MELDING TOEVOEGEN VIA API
+async function addMeldingViaAPI(meldingData) {
+    try {
+        const response = await fetch('/.netlify/functions/add-melding', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(meldingData)
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+            console.log("✅ Melding toegevoegd via API:", result);
+            return result.melding;
+        } else {
+            console.error("❌ API error:", result);
+            return null;
+        }
+        
+    } catch (error) {
+        console.error("❌ Netwerk error bij toevoegen melding:", error);
+        return null;
+    }
+}
+
+// FUNCTIE: UPDATE MELDING VIA API
+async function updateMeldingViaAPI(meldingId, updates) {
+    try {
+        // Maak een update-melding functie in Netlify
+        const response = await fetch('/.netlify/functions/update-melding', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: meldingId, ...updates })
+        });
+        
+        return await response.json();
+        
+    } catch (error) {
+        console.error("❌ Update melding error:", error);
+        return null;
+    }
+}
         // GLOBALE VARIABELEN
         // ======================
 // GIT SYNC CONFIGURATIE
@@ -1272,9 +1347,7 @@ function copyToClipboard() {
 setInterval(syncFromGitHub, 60000);
 
 // SYNC BIJ OPSTARTEN (3 seconden na laden)
-document.addEventListener('DOMContentLoaded', function() {
-    setTimeout(syncFromGitHub, 3000);
-});
+
         let currentUser = null;
         let users = [
             {
@@ -1304,6 +1377,9 @@ document.addEventListener('DOMContentLoaded', function() {
         let currentDispatchMelding = null;
 
         // INITIALISATIE
+ 
+
+                 // INITIALISATIE
         document.addEventListener('DOMContentLoaded', function() {
             // Laad data uit localStorage
             loadFromLocalStorage();
@@ -1339,8 +1415,17 @@ document.addEventListener('DOMContentLoaded', function() {
             // Vul discord instellingen
             document.getElementById('discordWebhook').value = discordSettings.webhookURL;
             document.getElementById('discordBotNaam').value = discordSettings.botNaam;
+            
+            // ✅ HIER DE NIEUWE CODE TOEVOEGEN ✅
+            // Sync bij opstarten (3 seconden na laden)
+            setTimeout(() => {
+                syncFromGitHub();  // GitHub sync
+                if (currentUser) {
+                    loadMeldingenFromAPI();  // Meldingen sync
+                }
+            }, 3000);
         });
-
+        
         // LOGIN FUNCTIE
         function login() {
             const email = document.getElementById('loginEmail').value.trim();
@@ -1628,104 +1713,8 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
 
-        // LAAD SPRAAKVERZOEKEN
-        function loadSpraakverzoeken() {
-            const container = document.getElementById('spraakLijst');
-            container.innerHTML = '';
-            
-            if (spraakverzoeken.length === 0) {
-                container.innerHTML = '<p style="color: #88c1ff; text-align: center; padding: 20px;">Nog geen spraakverzoeken ingediend.</p>';
-                return;
-            }
-            
-            spraakverzoeken.sort((a, b) => {
-                // Eerst op status (pending eerst), dan op prioriteit
-                if (a.status !== b.status) {
-                    return a.status === 'pending' ? -1 : 1;
-                }
-                return b.prioriteit - a.prioriteit;
-            }).forEach(spraak => {
-                const item = document.createElement('div');
-                item.className = `spraak-item ${spraak.urgent ? 'urgent' : ''} ${spraak.status || ''}`;
-                
-                let statusBadge = '';
-                let actions = '';
-                
-                if (spraak.status === 'pending') {
-                    statusBadge = '⏳ WACHT OP GOEDKEURING';
-                    if (currentUser && (currentUser.role === 'admin' || currentUser.role === 'meldkamer')) {
-                        actions = `
-                            <div class="melding-actions">
-                                <button class="action-btn-small btn-accept" onclick="acceptMelding(${spraak.id})">
-                                    ✅ Accepteren
-                                </button>
-                                <button class="action-btn-small btn-dispatch" onclick="openDispatchModal(${spraak.id})">
-                                    🚨 Uitzenden
-                                </button>
-                                <button class="action-btn-small btn-ignore" onclick="ignoreMelding(${spraak.id})">
-                                    ➖ Negeren
-                                </button>
-                            </div>
-                        `;
-                    }
-                } else if (spraak.status === 'dispatched') {
-                    statusBadge = '🚨 EENHEDEN ONDERWEG';
-                } else if (spraak.status === 'resolved') {
-                    statusBadge = '✅ OPGELOST';
-                } else if (spraak.status === 'declined') {
-                    statusBadge = '❌ AFGEWEZEN';
-                }
-                
-                item.innerHTML = `
-                    <div class="spraak-header">
-                        <div class="spraak-type">${spraak.type}</div>
-                        <div class="spraak-prio prio-${spraak.prioriteit}">PRIO ${spraak.prioriteit}</div>
-                    </div>
-                    <div class="spraak-details">${spraak.bericht}</div>
-                    ${statusBadge ? `<div style="color: var(--warning); margin: 10px 0; font-weight: bold;">${statusBadge}</div>` : ''}
-                    <div class="spraak-footer">
-                        <div>Voor: ${getDienstNaam(spraak.dienst)}</div>
-                        <div>${spraak.tijd} ${spraak.urgent ? '• 🚨 URGENT' : ''}</div>
-                    </div>
-                    ${actions}
-                `;
-                
-                container.appendChild(item);
-            });
-        }
-
-        // UPDATE DISCORD INSTELLINGEN
-        function updateDienstOptions() {
-            const type = document.getElementById('spraakType').value;
-            const dienstSelect = document.getElementById('spraakDienst');
-            
-            if (type === 'BIJSTAND') {
-                // Toon alleen relevante diensten voor bijstand
-                dienstSelect.innerHTML = `
-                    <option value="">Selecteer dienst...</option>
-                    <option value="politie">👮 Politie</option>
-                    <option value="brandweer">🚒 Brandweer</option>
-                    <option value="ambulance">🚑 Ambulance</option>
-                    <option value="kmar">🪖 KMar</option>
-                    <option value="dsi">🔫 DSI</option>
-                `;
-            } else {
-                // Toon alle diensten
-                dienstSelect.innerHTML = `
-                    <option value="">Selecteer dienst...</option>
-                    <option value="alle">Alle Diensten</option>
-                    <option value="politie">👮 Politie</option>
-                    <option value="brandweer">🚒 Brandweer</option>
-                    <option value="ambulance">🚑 Ambulance</option>
-                    <option value="kmar">🪖 KMar</option>
-                    <option value="dsi">🔫 DSI</option>
-                    <option value="meldkamer">📡 Meldkamer</option>
-                `;
-            }
-        }
-
-        // SUBMIT SPRAAKVERZOEK
-        function submitSpraakverzoek() {
+        // SUBMIT SPRAAKVERZOEK (ASYNC MET API)
+        async function submitSpraakverzoek() {
             const type = document.getElementById('spraakType').value;
             const dienst = document.getElementById('spraakDienst').value;
             const bericht = document.getElementById('spraakBericht').value;
@@ -1742,36 +1731,67 @@ document.addEventListener('DOMContentLoaded', function() {
             else if (type === 'BIJSTAND') prioriteit = 2;
             else if (urgent) prioriteit = 1;
             
-            // Nieuwe spraakverzoek
-            const nieuweSpraak = {
-                id: spraakverzoeken.length + 1,
+            // Nieuwe melding object
+            const nieuweMelding = {
                 type: type,
                 dienst: dienst,
                 bericht: bericht,
                 urgent: urgent,
                 tijd: new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }),
+                datum: new Date().toISOString().split('T')[0],
                 prioriteit: prioriteit,
-                status: 'pending', // Nieuwe meldingen moeten goedgekeurd worden
-                ingediendDoor: currentUser ? currentUser.name : 'Onbekend'
+                status: 'pending',
+                ingediendDoor: currentUser ? currentUser.name : 'Onbekend',
+                roepnummer: currentUser ? currentUser.roepnummer : null
             };
             
-            // Voeg toe
-            spraakverzoeken.unshift(nieuweSpraak);
+            // Toon loading
+            const submitBtn = document.getElementById('submitSpraak');
+            const originalText = submitBtn.innerHTML;
+            submitBtn.innerHTML = '📡 Verzenden...';
+            submitBtn.disabled = true;
             
-            // Reload
-            loadSpraakverzoeken();
-            
-            // Reset form
-            document.getElementById('spraakverzoekForm').reset();
-            document.getElementById('submitSpraak').classList.remove('urgent');
-            document.getElementById('submitSpraak').innerHTML = '📢 Spraakverzoek Indienen';
-            
-            // Sla op
-            saveToLocalStorage();
-            
-            alert(`✅ Spraakverzoek ingediend!\n\nWacht op goedkeuring van de meldkamer.`);
+            try {
+                // Probeer eerst via API
+                const apiResult = await addMeldingViaAPI(nieuweMelding);
+                
+                if (apiResult) {
+                    // API succesvol
+                    nieuweMelding.id = apiResult.id || Date.now();
+                    nieuweMelding.apiId = apiResult.id;
+                    nieuweMelding.source = 'api';
+                } else {
+                    // API faalde, gebruik lokale ID
+                    nieuweMelding.id = spraakverzoeken.length + 1;
+                    nieuweMelding.source = 'local';
+                }
+                
+                // Voeg toe aan array
+                spraakverzoeken.unshift(nieuweMelding);
+                
+                // Reload
+                loadSpraakverzoeken();
+                
+                // Reset form
+                document.getElementById('spraakverzoekForm').reset();
+                document.getElementById('submitSpraak').classList.remove('urgent');
+                document.getElementById('submitSpraak').innerHTML = '📢 Spraakverzoek Indienen';
+                
+                // Sla op
+                saveToLocalStorage();
+                
+                // Success bericht
+                alert(`✅ ${apiResult ? 'Melding via API' : 'Melding lokaal'} ingediend!\n\nWacht op goedkeuring van de meldkamer.`);
+                
+            } catch (error) {
+                console.error("❌ Fout bij indienen:", error);
+                alert('❌ Fout bij indienen melding. Probeer opnieuw.');
+            } finally {
+                // Reset button
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+            }
         }
-
         // ACCEPT MELDING
         function acceptMelding(meldingId) {
             const melding = spraakverzoeken.find(m => m.id === meldingId);
@@ -2700,6 +2720,34 @@ function forceReloadData() {
 
 // Voeg ook deze knop toe in footer:
 // <button onclick="forceReloadData()" class="action-btn secondary">🔄 Force Reload</button>
+    // ======================
+    // AUTO-SYNC VOOR MELDINGEN
+    // ======================
+    
+    // Auto-sync meldingen elke 30 seconden
+    setInterval(() => {
+        if (currentUser && currentUser.role === 'admin') {
+            loadMeldingenFromAPI();
+        }
+    }, 30000);
+    
+    
+    // Voeg de testMeldingenAPI functie hier toe (binnen dezelfde <script> tag)
+    async function testMeldingenAPI() {
+        try {
+            // Test get-meldingen
+            const response = await fetch('/.netlify/functions/get-meldingen');
+            const data = await response.json();
+            
+            console.log("📊 API Response:", data);
+            
+            alert(`✅ API werkt!\nGebruikers: ${data.users.length}\nMeldingen: ${data.meldingen?.length || 0}`);
+            
+        } catch (error) {
+            console.error("❌ API test failed:", error);
+            alert(`❌ API test mislukt:\n${error.message}`);
+        }
+    }
     </script>
 </body>
 </html>

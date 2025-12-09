@@ -31,5 +31,16 @@
       "status": "uit"
     }
   ],
+  "meldingen": [
+    {
+      "id": 1,
+      "type": "URGENTIE",
+      "dienst": "politie",
+      "bericht": "Overval in progress",
+      "status": "pending",
+      "tijd": "14:30",
+      "prioriteit": 1
+    }
+  ],
   "last_updated": "2025-12-09T17:57:23.809Z"
 }
