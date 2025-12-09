@@ -1,1 +1,25 @@
-} 
+{
+  "users": [
+    {
+      "id": 1,
+      "email": "admin@reghaag.nl",
+      "password": "welkom123",
+      "name": "Admin User",
+      "dienst": "meldkamer",
+      "roepnummer": "MK-01",
+      "role": "admin",
+      "status": "uit"
+    },
+    {
+      "id": 2,
+      "email": "gilles@test.be",
+      "password": "Gilles",
+      "name": "/",
+      "dienst": "kmar",
+      "roepnummer": "11",
+      "role": "gebruiker",
+      "status": "uit"
+    }
+  ],
+  "last_updated": "2025-12-09T17:47:39.969Z"
+}
