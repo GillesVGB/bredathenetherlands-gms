@@ -1,24 +1,23 @@
-// netlify/functions/get-meldingen.js
+const fs = require('fs').promises;
+const path = require('path');
+
 exports.handler = async function(event, context) {
-    const GITHUB_URL = 'https://raw.githubusercontent.com/GillesVGB/bredathenetherlands-gms/main/data.json';
+  try {
+    const dataPath = path.join(__dirname, '..', '..', 'data.json');
+    const data = JSON.parse(await fs.readFile(dataPath, 'utf8'));
     
-    try {
-        const response = await fetch(GITHUB_URL);
-        const data = await response.json();
-        
-        return {
-            statusCode: 200,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                users: data.users || [],
-                meldingen: data.meldingen || [],
-                last_updated: data.last_updated
-            })
-        };
-    } catch (error) {
-        return {
-            statusCode: 500,
-            body: JSON.stringify({ error: error.message })
-        };
-    }
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        users: data.users || [],
+        meldingen: data.meldingen || []
+      })
+    };
+  } catch (error) {
+    return {
+      statusCode: 200,
+      body: JSON.stringify({ users: [], meldingen: [] })
+    };
+  }
 };

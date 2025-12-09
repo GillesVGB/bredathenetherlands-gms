@@ -1108,16 +1108,16 @@
         <button onclick="testLogin()" class="action-btn secondary" style="width: auto; margin-left: 10px;">
             🐛 Test Gebruikers
         </button>
-        <button onclick="syncFromGitHub()" class="action-btn secondary" style="width: auto; margin-left: 10px;">
-            🔄 Sync van GitHub
-        </button>
-        <button onclick="pushToGitHub()" class="action-btn secondary" style="width: auto; margin-left: 10px;">
-            📤 Push naar GitHub
-        </button>
         
-        <!-- NIEUWE TEST KNOOP TOEVOEGEN HIER -->
+        <!-- NIEUWE TEST KNOppen -->
         <button onclick="testMeldingenAPI()" class="action-btn secondary" style="width: auto; margin-left: 10px;">
             🧪 Test Meldingen API
+        </button>
+        <button onclick="testAllAPIs()" class="action-btn secondary" style="width: auto; margin-left: 10px;">
+            🧪 Test Alle APIs
+        </button>
+        <button onclick="forceReloadData()" class="action-btn secondary" style="width: auto; margin-left: 10px;">
+            🔄 Force Reload
         </button>
     </p>
 </footer>
@@ -1176,6 +1176,169 @@
     </div>
 
     <script>
+        // ======================
+// REALTIME SYNC FUNCTIES
+// ======================
+
+let syncInterval = null;
+let lastMeldingId = null;
+
+async function loadUsersFromServer() {
+    try {
+        console.log("📥 Gebruikers laden van server...");
+        const response = await fetch('/.netlify/functions/sync-users');
+        const data = await response.json();
+        
+        if (data.users && data.users.length > 0) {
+            console.log(`✅ ${data.users.length} gebruikers van server`);
+            
+            data.users.forEach(serverUser => {
+                const localIndex = users.findIndex(u => u.email === serverUser.email);
+                
+                if (localIndex === -1) {
+                    // Nieuwe gebruiker
+                    users.push(serverUser);
+                    console.log('➕ Nieuwe gebruiker:', serverUser.email);
+                } else {
+                    // Update status van bestaande
+                    users[localIndex].status = serverUser.status;
+                }
+            });
+            
+            updateUsersList();
+            updateRoepnummersFromUsers();
+            updateRoepnummerSelect();
+            saveToLocalStorage();
+        }
+    } catch (error) {
+        console.error('❌ Fout bij laden gebruikers:', error);
+    }
+}
+
+function startRealtimeSync() {
+    if (syncInterval) clearInterval(syncInterval);
+    
+    console.log("🔄 Start realtime sync (elke 10 seconden)");
+    
+    syncInterval = setInterval(async () => {
+        if (!currentUser) return;
+        
+        try {
+            await loadUsersFromServer();
+            await loadMeldingenFromAPI();
+            
+            if (['admin', 'meldkamer'].includes(currentUser.role)) {
+                checkForNewMeldingen();
+            }
+            
+        } catch (error) {
+            console.error('Sync error:', error);
+        }
+    }, 10000);
+}
+
+function checkForNewMeldingen() {
+    if (spraakverzoeken.length === 0) return;
+    
+    const latestMelding = spraakverzoeken[0];
+    
+    if (lastMeldingId !== latestMelding.id) {
+        lastMeldingId = latestMelding.id;
+        
+        // Maak notificatie
+        const notification = document.createElement('div');
+        notification.style.cssText = `
+            position: fixed; top: 20px; right: 20px; 
+            background: linear-gradient(135deg, #ff4757, #ff6b6b);
+            color: white; padding: 15px 25px; border-radius: 10px;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.3); z-index: 9999;
+            animation: slideIn 0.3s ease-out; border-left: 5px solid white;
+            min-width: 300px; max-width: 400px;
+        `;
+        
+        notification.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                <span style="font-size: 1.5rem;">🚨</span>
+                <strong style="font-size: 1.1rem;">Nieuwe melding</strong>
+            </div>
+            <div style="font-size: 0.95rem;">${latestMelding.type}</div>
+            <div style="font-size: 0.8rem; margin-top: 10px; opacity: 0.7; text-align: right;">
+                ${new Date().toLocaleTimeString('nl-NL', {hour: '2-digit', minute:'2-digit'})}
+            </div>
+        `;
+        
+        document.body.appendChild(notification);
+        
+        setTimeout(() => {
+            notification.style.animation = 'slideOut 0.3s ease-in';
+            setTimeout(() => notification.remove(), 300);
+        }, 5000);
+        
+        notification.onclick = () => notification.remove();
+    }
+}
+
+// Voeg CSS toe
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes slideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes slideOut {
+        from { transform: translateX(0); opacity: 1; }
+        to { transform: translateX(100%); opacity: 0; }
+    }
+`;
+document.head.appendChild(style);
+// VOEG DEZE FUNCTIES TOE in je JavaScript:
+
+function testAllAPIs() {
+    console.log('🧪 Test alle APIs...');
+    
+    Promise.all([
+        fetch('/.netlify/functions/sync-users').then(r => r.json()),
+        fetch('/.netlify/functions/get-meldingen').then(r => r.json()),
+        fetch('/.netlify/functions/add-melding', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: 'TEST',
+                dienst: 'politie',
+                bericht: 'Test melding van API',
+                urgent: false,
+                prioriteit: 3,
+                tijd: new Date().toLocaleTimeString('nl-NL'),
+                datum: new Date().toISOString().split('T')[0]
+            })
+        }).then(r => r.json())
+    ])
+    .then(results => {
+        console.log('API Results:', results);
+        alert(`✅ Alle APIs werken!\n\nGebruikers: ${results[0].users?.length || 0}\nMeldingen: ${results[1].meldingen?.length || 0}`);
+    })
+    .catch(error => {
+        console.error('❌ API test mislukt:', error);
+        alert(`❌ API test mislukt:\n${error.message}`);
+    });
+}
+
+function forceReloadData() {
+    if (confirm("Weet je zeker dat je alle data wilt herladen?\n\nDit logt je uit en herlaadt alles van de server.")) {
+        // Stop sync
+        if (syncInterval) {
+            clearInterval(syncInterval);
+            syncInterval = null;
+        }
+        
+        // Clear localStorage
+        localStorage.removeItem('gms_data');
+        localStorage.removeItem('gms_currentUser');
+        
+        // Herlaad pagina
+        location.reload();
+    }
+}
         // FUNCTIE: LAAD MELDINGEN VAN NETLIFY FUNCTION
 async function loadMeldingenFromAPI() {
     try {
@@ -1251,100 +1414,6 @@ async function updateMeldingViaAPI(meldingId, updates) {
 // GIT SYNC CONFIGURATIE
 // ======================
 
-const GIT_DATA_URL = 'https://raw.githubusercontent.com/GillesVGB/bredathenetherlands-gms/main/data.json';
-let isSyncing = false;
-
-// FUNCTIE: LAAD DATA VAN GITHUB
-async function syncFromGitHub() {
-    if (isSyncing) return;
-    isSyncing = true;
-    
-    try {
-        console.log("📥 Synchroniseren met GitHub...");
-        const response = await fetch(GIT_DATA_URL + '?t=' + Date.now());
-        const gitData = await response.json();
-        
-        console.log("✅ GitHub data ontvangen:", gitData.users.length, "gebruikers");
-        
-        let newUsers = 0;
-        gitData.users.forEach(gitUser => {
-            const exists = users.find(u => u.email === gitUser.email);
-            if (!exists) {
-                users.push(gitUser);
-                newUsers++;
-            }
-        });
-        
-        if (newUsers > 0) {
-            updateUsersList();
-            updateRoepnummersFromUsers();
-            updateRoepnummerSelect();
-            saveToLocalStorage();
-            alert(`🔄 ${newUsers} nieuwe gebruiker(s) gesynct van GitHub!`);
-        }
-        
-    } catch (error) {
-        console.error("❌ GitHub sync error:", error);
-    } finally {
-        isSyncing = false;
-    }
-}
-
-// FUNCTIE: PUSH DATA NAAR GITHUB
-function pushToGitHub() {
-    const dataToPush = {
-        users: users,
-        last_updated: new Date().toISOString()
-    };
-    
-    const jsonStr = JSON.stringify(dataToPush, null, 2);
-    
-    const modal = document.createElement('div');
-    modal.style.cssText = `
-        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
-        background: var(--secondary); padding: 30px; border-radius: 15px;
-        border: 2px solid var(--accent); z-index: 9999; width: 80%; max-width: 600px;
-        max-height: 80vh; overflow: auto; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-    `;
-    
-    modal.innerHTML = `
-        <h2 style="color: var(--accent); margin-bottom: 20px;">📤 Push naar GitHub</h2>
-        <p style="color: #88c1ff; margin-bottom: 15px;">
-            <strong>Stappen:</strong><br>
-            1. Kopieer onderstaande JSON<br>
-            2. Ga naar <a href="https://github.com/GillesVGB/bredathenetherlands-gms" target="_blank" style="color: #4a9eff;">jouw GitHub</a><br>
-            3. Open data.json → Edit<br>
-            4. Plak deze JSON → Commit changes
-        </p>
-        <textarea id="githubJson" style="
-            width: 100%; height: 300px; background: #0a1a35; color: white;
-            border: 2px solid #2a4270; border-radius: 8px; padding: 15px;
-            font-family: monospace; margin-bottom: 20px; resize: vertical;
-        ">${jsonStr}</textarea>
-        <div style="display: flex; gap: 15px;">
-            <button onclick="copyToClipboard()" class="action-btn primary" style="flex: 1;">
-                📋 Kopieer JSON
-            </button>
-            <button onclick="this.parentElement.parentElement.remove()" class="action-btn" style="flex: 1;">
-                ❌ Sluiten
-            </button>
-        </div>
-    `;
-    
-    document.body.appendChild(modal);
-    document.getElementById('githubJson').select();
-}
-
-// FUNCTIE: KOPIEER NAAR KLIPBORD
-function copyToClipboard() {
-    const textarea = document.getElementById('githubJson');
-    textarea.select();
-    document.execCommand('copy');
-    alert('✅ JSON gekopieerd! Plak nu in data.json op GitHub.');
-}
-
-// AUTO-SYNC ELKE 60 SECONDEN
-setInterval(syncFromGitHub, 60000);
 
 // SYNC BIJ OPSTARTEN (3 seconden na laden)
 
@@ -1379,120 +1448,141 @@ setInterval(syncFromGitHub, 60000);
         // INITIALISATIE
  
 
-                 // INITIALISATIE
-        document.addEventListener('DOMContentLoaded', function() {
-            // Laad data uit localStorage
-            loadFromLocalStorage();
-            
-            // Update gebruikerslijst
-            updateUsersList();
-            
-            // Update roepnummers (van gebruikers)
-            updateRoepnummersFromUsers();
-            
-            // Event listeners
-            document.getElementById('spraakverzoekForm').addEventListener('submit', function(e) {
-                e.preventDefault();
-                submitSpraakverzoek();
-            });
+ // INITIALISATIE
+document.addEventListener('DOMContentLoaded', function() {
+    // Laad data uit localStorage
+    loadFromLocalStorage();
+    
+    // Update gebruikerslijst
+    updateUsersList();
+    
+    // Update roepnummers (van gebruikers)
+    updateRoepnummersFromUsers();
+    
+    // Event listeners
+    document.getElementById('spraakverzoekForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        submitSpraakverzoek();
+    });
 
-            document.getElementById('addUserForm').addEventListener('submit', function(e) {
-                e.preventDefault();
-                addNewUser();
-            });
+    document.getElementById('addUserForm').addEventListener('submit', addNewUser);
 
-            document.getElementById('isUrgent').addEventListener('change', function() {
-                const submitBtn = document.getElementById('submitSpraak');
-                if (this.checked) {
-                    submitBtn.classList.add('urgent');
-                    submitBtn.innerHTML = '🚨 URGENT SPRAAKVERZOEK INDIENEN';
-                } else {
-                    submitBtn.classList.remove('urgent');
-                    submitBtn.innerHTML = '📢 Spraakverzoek Indienen';
-                }
-            });
+    document.getElementById('isUrgent').addEventListener('change', function() {
+        const submitBtn = document.getElementById('submitSpraak');
+        if (this.checked) {
+            submitBtn.classList.add('urgent');
+            submitBtn.innerHTML = '🚨 URGENT SPRAAKVERZOEK INDIENEN';
+        } else {
+            submitBtn.classList.remove('urgent');
+            submitBtn.innerHTML = '📢 Spraakverzoek Indienen';
+        }
+    });
 
-            // Vul discord instellingen
-            document.getElementById('discordWebhook').value = discordSettings.webhookURL;
-            document.getElementById('discordBotNaam').value = discordSettings.botNaam;
-            
-            // ✅ HIER DE NIEUWE CODE TOEVOEGEN ✅
-            // Sync bij opstarten (3 seconden na laden)
-            setTimeout(() => {
-                syncFromGitHub();  // GitHub sync
-                if (currentUser) {
-                    loadMeldingenFromAPI();  // Meldingen sync
-                }
-            }, 3000);
-        });
+    // Vul discord instellingen
+    document.getElementById('discordWebhook').value = discordSettings.webhookURL;
+    document.getElementById('discordBotNaam').value = discordSettings.botNaam;
+    
+    // ✅ CORRECTE AUTO-SYNC BIJ OPSTARTEN
+    setTimeout(() => {
+        // Als er al iemand ingelogd is, start sync
+        if (currentUser) {
+            startRealtimeSync();
+            loadUsersFromServer();
+            loadMeldingenFromAPI();
+        }
+    }, 3000);
+});
+// Voeg deze toe ergens in je script om te testen:
+function checkSyncStatus() {
+    console.log("=== SYNC STATUS ===");
+    console.log("syncInterval actief:", syncInterval ? "JA" : "NEE");
+    console.log("Current user:", currentUser ? currentUser.email : "GEEN");
+    console.log("Users in systeem:", users.length);
+    console.log("Last melding ID:", lastMeldingId);
+}
         
-        // LOGIN FUNCTIE
-        function login() {
-            const email = document.getElementById('loginEmail').value.trim();
-            const password = document.getElementById('loginPassword').value;
+// LOGIN FUNCTIE
+function login() {
+    const email = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPassword').value;
 
-            if (!email || !password) {
-                alert('Voer email en wachtwoord in');
-                return;
-            }
+    if (!email || !password) {
+        alert('Voer email en wachtwoord in');
+        return;
+    }
 
-            const user = users.find(u => u.email === email && u.password === password);
-            
-            if (user) {
-                currentUser = user;
-                
-                // Update UI
-                document.getElementById('loginScreen').style.display = 'none';
-                document.getElementById('mainContent').style.display = 'block';
-                
-                document.getElementById('currentUser').textContent = user.email;
-                document.getElementById('userRole').textContent = 
-                    user.role === 'admin' ? '👑 Admin' : 
-                    user.role === 'meldkamer' ? '📡 Meldkamer' : '👤 Gebruiker';
-                document.getElementById('userAvatar').textContent = user.name.charAt(0).toUpperCase();
-                
-                // Toon/verberg Admin tab
-                const adminTab = document.getElementById('adminTab');
-                if (user.role === 'admin' || user.role === 'meldkamer') {
-                    adminTab.style.display = 'block';
-                } else {
-                    adminTab.style.display = 'none';
-                }
-                
-                // Laad data
-                loadRoepnummers();
-                loadSpraakverzoeken();
-                loadDiscordKanalen();
-                updateRoepnummerSelect();
-                updateDienstStatus();
-                
-                alert(`Welkom ${user.name}!`);
-                
-                // Sla login op in localStorage
-                localStorage.setItem('gms_currentUser', JSON.stringify(user));
-            } else {
-                alert('Ongeldige login gegevens');
-            }
+    const user = users.find(u => u.email === email && u.password === password);
+    
+    if (user) {
+        currentUser = user;
+        
+        // Update UI
+        document.getElementById('loginScreen').style.display = 'none';
+        document.getElementById('mainContent').style.display = 'block';
+        
+        document.getElementById('currentUser').textContent = user.email;
+        document.getElementById('userRole').textContent = 
+            user.role === 'admin' ? '👑 Admin' : 
+            user.role === 'meldkamer' ? '📡 Meldkamer' : '👤 Gebruiker';
+        document.getElementById('userAvatar').textContent = user.name.charAt(0).toUpperCase();
+        
+        // Toon/verberg Admin tab
+        const adminTab = document.getElementById('adminTab');
+        if (user.role === 'admin' || user.role === 'meldkamer') {
+            adminTab.style.display = 'block';
+        } else {
+            adminTab.style.display = 'none';
         }
-
-        // LOGOUT FUNCTIE
-        function logout() {
-            if (huidigeDienst && currentUser.roepnummer === huidigeDienst.nummer) {
-                if (!confirm('Je bent nog in dienst! Weet je zeker dat je wilt uitloggen?')) {
-                    return;
-                }
-                stopDienst();
-            }
-
-            currentUser = null;
-            localStorage.removeItem('gms_currentUser');
-            
-            document.getElementById('mainContent').style.display = 'none';
-            document.getElementById('loginScreen').style.display = 'block';
-            document.getElementById('loginPassword').value = '';
-            
-            alert('Uitgelogd');
+        
+        // Laad data
+        loadRoepnummers();
+        loadSpraakverzoeken();
+        loadDiscordKanalen();
+        updateRoepnummerSelect();
+        updateDienstStatus();
+        
+        // ✅ START REALTIME SYNC HIER
+        startRealtimeSync();
+        
+        alert(`Welkom ${user.name}!`);
+        
+        // Sla login op in localStorage
+        localStorage.setItem('gms_currentUser', JSON.stringify(user));
+        
+        // ✅ LAAD DATA VAN SERVER NA LOGIN
+        setTimeout(() => {
+            loadUsersFromServer();
+            loadMeldingenFromAPI();
+        }, 1000);
+        
+    } else {
+        alert('Ongeldige login gegevens');
+    }
+}
+// LOGOUT FUNCTIE
+function logout() {
+    if (huidigeDienst && currentUser.roepnummer === huidigeDienst.nummer) {
+        if (!confirm('Je bent nog in dienst! Weet je zeker dat je wilt uitloggen?')) {
+            return;
         }
+        stopDienst();
+    }
+    
+    // ✅ STOP DE SYNC VOORUIT UITLOGGEN
+    if (syncInterval) {
+        clearInterval(syncInterval);
+        syncInterval = null;
+    }
+
+    currentUser = null;
+    localStorage.removeItem('gms_currentUser');
+    
+    document.getElementById('mainContent').style.display = 'none';
+    document.getElementById('loginScreen').style.display = 'block';
+    document.getElementById('loginPassword').value = '';
+    
+    alert('Uitgelogd');
+}
 
         // TAB SWITCHING
         function switchTab(tabName) {
@@ -1509,59 +1599,103 @@ setInterval(syncFromGitHub, 60000);
             document.getElementById(`tab-${tabName}`).classList.add('active');
         }
 
-        // NIEUWE GEBRUIKER TOEVOEGEN
-        function addNewUser() {
-            const email = document.getElementById('newEmail').value.trim();
-            const password = document.getElementById('newPassword').value;
-            const name = document.getElementById('newName').value.trim();
-            const dienst = document.getElementById('newDienst').value;
-            const roepnummer = document.getElementById('newRoepnummer').value.trim();
-            const role = document.getElementById('newRole').value;
+// NIEUWE GEBRUIKER TOEVOEGEN (MET SERVER SYNC)
+async function addNewUser(event) {
+    event.preventDefault();
+    
+    const email = document.getElementById('newEmail').value.trim();
+    const password = document.getElementById('newPassword').value;
+    const name = document.getElementById('newName').value.trim();
+    const dienst = document.getElementById('newDienst').value;
+    const roepnummer = document.getElementById('newRoepnummer').value.trim();
+    const role = document.getElementById('newRole').value;
 
-            if (!email || !password || !name || !dienst || !roepnummer) {
-                alert('Vul alle velden in!');
-                return;
-            }
+    if (!email || !password || !name || !dienst || !roepnummer) {
+        alert('Vul alle velden in!');
+        return;
+    }
 
-            // Check of email al bestaat
-            if (users.some(u => u.email === email)) {
-                alert('Dit e-mailadres bestaat al!');
-                return;
-            }
+    // Check of email lokaal al bestaat
+    if (users.some(u => u.email === email)) {
+        alert('Dit e-mailadres bestaat al (lokaal)!');
+        return;
+    }
 
-            // Check of roepnummer al bestaat
-            if (users.some(u => u.roepnummer === roepnummer)) {
-                alert('Dit roepnummer bestaat al!');
-                return;
-            }
+    // Check of roepnummer lokaal al bestaat
+    if (users.some(u => u.roepnummer === roepnummer)) {
+        alert('Dit roepnummer bestaat al (lokaal)!');
+        return;
+    }
 
-            // Nieuwe gebruiker
-            const newUser = {
-                id: users.length + 1,
-                email: email,
-                password: password,
-                name: name,
-                dienst: dienst,
-                roepnummer: roepnummer,
-                role: role,
-                status: 'uit'
-            };
+    const newUser = {
+        id: Date.now(),
+        email: email,
+        password: password,
+        name: name,
+        dienst: dienst,
+        roepnummer: roepnummer,
+        role: role,
+        status: 'uit'
+    };
 
+    // Toon loading
+    const submitBtn = event.target.querySelector('button[type="submit"]');
+    const originalText = submitBtn.innerHTML;
+    submitBtn.innerHTML = '📡 Verzenden naar server...';
+    submitBtn.disabled = true;
+
+    try {
+        // 1. Stuur naar server (NU kan iedereen deze gebruiker zien)
+        const serverResult = await fetch('/.netlify/functions/sync-users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newUser)
+        });
+        
+        const result = await serverResult.json();
+        
+        if (serverResult.ok && result.success) {
+            // 2. Voeg lokaal toe
             users.push(newUser);
             
-            // Update alles
+            // 3. Update UI
             updateUsersList();
             updateRoepnummersFromUsers();
             updateRoepnummerSelect();
             
-            // Reset form
+            // 4. Reset form
             document.getElementById('addUserForm').reset();
             
-            // Sla op
+            // 5. Sla op
             saveToLocalStorage();
             
-            alert(`✅ Gebruiker ${name} toegevoegd!`);
+            alert(`✅ ${name} toegevoegd!\n\nAndere spelers kunnen NU inloggen met deze account!`);
+            
+        } else {
+            throw new Error(result.error || 'Server error');
         }
+        
+    } catch (error) {
+        console.error('Server sync mislukt:', error);
+        
+        // Fallback: alleen lokaal toevoegen
+        users.push(newUser);
+        
+        updateUsersList();
+        updateRoepnummersFromUsers();
+        updateRoepnummerSelect();
+        
+        document.getElementById('addUserForm').reset();
+        saveToLocalStorage();
+        
+        alert(`⚠️ ${name} alleen lokaal toegevoegd.\nServer sync mislukt: ${error.message}\nAndere spelers kunnen NIET inloggen.`);
+        
+    } finally {
+        // Reset button
+        submitBtn.innerHTML = originalText;
+        submitBtn.disabled = false;
+    }
+}
 
         // UPDATE GEBRUIKERS LIJST
         function updateUsersList() {
