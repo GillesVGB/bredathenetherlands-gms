@@ -19,11 +19,17 @@
       "roepnummer": "11",
       "role": "gebruiker",
       "status": "uit"
+    },
+    {
+      "id": 3,
+      "email": "gilles@ik.be",
+      "password": "TEST",
+      "name": "TEST",
+      "dienst": "dsi",
+      "roepnummer": "TEST",
+      "role": "gebruiker",
+      "status": "uit"
     }
   ],
-  "last_updated": "2025-12-09T17:47:39.969Z"
-<<<<<<< HEAD
+  "last_updated": "2025-12-09T17:57:23.809Z"
 }
-=======
-}
->>>>>>> 24de63f0aad1dff27d9e2335e68435deefff59de
