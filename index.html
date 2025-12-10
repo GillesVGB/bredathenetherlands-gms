@@ -1194,24 +1194,36 @@ let lastMeldingId = null;
 
 async function loadUsersFromServer() {
     try {
-        console.log("📥 Sync met server...");
+        console.log("📥 Gebruikers laden van server...");
         const response = await fetch(getAPIUrl('/sync-users'));
         const data = await response.json();
         
-        console.log("✅ Server sync response:", data);
-        
-        // WIJZIGING: Gebruik de server data NIET voor lokale users!
-        // Alleen voor debugging/logging
-        if (data.users && data.users.length > 0) {
-            console.log(`ℹ️ ${data.users.length} spelers op server`);
+        if (data.success && data.users && data.users.length > 0) {
+            console.log(`✅ ${data.users.length} gebruikers van server`);
+            
+            // MERGE: Voeg server users toe aan lokale users
+            data.users.forEach(serverUser => {
+                // Check of deze user al lokaal bestaat
+                const exists = users.some(u => 
+                    u.email === serverUser.email || 
+                    u.id === serverUser.id
+                );
+                
+                if (!exists) {
+                    // Voeg nieuwe user toe
+                    users.push(serverUser);
+                    console.log('➕ Nieuwe gebruiker van server:', serverUser.email);
+                }
+            });
+            
+            // Update UI
+            updateUsersList();
+            updateRoepnummersFromUsers();
+            updateRoepnummerSelect();
+            saveToLocalStorage();
         }
-        
-        // Sla gewoon lokaal op
-        saveToLocalStorage();
-        
     } catch (error) {
-        console.error('❌ Fout bij server sync:', error);
-        // Geen probleem, gebruik lokale data
+        console.error('❌ Fout bij laden gebruikers:', error);
     }
 }
 function startRealtimeSync() {

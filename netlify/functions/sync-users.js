@@ -4,55 +4,61 @@ const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
 const supabase = createClient(supabaseUrl, supabaseKey);
 
+// TEMP: Simpele in-memory store voor gebruikers
+let sharedUsers = [];
+
 exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
     'Content-Type': 'application/json'
   };
 
-  // Handle OPTIONS preflight
   if (event.httpMethod === 'OPTIONS') {
-    return {
-      statusCode: 200,
-      headers,
-      body: ''
-    };
+    return { statusCode: 200, headers, body: '' };
   }
 
   try {
-    console.log('🔧 Sync-users called, method:', event.httpMethod);
-
-    // GET: Haal alleen SUPABASE spelers op (NIET je lokale GMS gebruikers)
+    // GET: Geef ALLE gedeelde gebruikers terug
     if (event.httpMethod === 'GET') {
-      const { data, error } = await supabase
+      // Haal spelers uit Supabase
+      const { data: players, error } = await supabase
         .from('players')
         .select('*')
         .order('last_seen', { ascending: false });
 
-      if (error) {
-        console.error('❌ Supabase error:', error);
-        throw error;
-      }
+      if (error) throw error;
 
-      console.log(`✅ Found ${data.length} players in Supabase`);
+      // Combineer Supabase players met sharedUsers
+      const allUsers = [
+        ...players.map(p => ({
+          id: p.id,
+          email: p.username + '@gms.nl',  // Maak email van username
+          password: 'wachtwoord123',      // DEFAULT wachtwoord!
+          name: p.username,
+          roepnummer: `RN-${p.id}`,
+          dienst: 'politie',
+          role: 'gebruiker',
+          status: 'uit',
+          source: 'supabase'
+        })),
+        ...sharedUsers
+      ];
 
-      // RETOURNEER LEEGE ARRAY - Supabase players zijn NIET je GMS gebruikers!
       return {
         statusCode: 200,
         headers,
         body: JSON.stringify({ 
           success: true, 
-          users: [] // ← LEEG! Supabase players ≠ GMS users
+          users: allUsers 
         })
       };
     }
 
-    // POST: Voeg SUPABASE speler toe (voor GMS login sync)
+    // POST: Voeg nieuwe gebruiker toe (voor sharing)
     if (event.httpMethod === 'POST') {
       const newUser = JSON.parse(event.body || '{}');
-      console.log('📝 Adding player to Supabase:', newUser.email);
-
-      // Voeg TOE aan Supabase players tabel (voor andere spelers)
+      
+      // Voeg toe aan Supabase
       const { data, error } = await supabase
         .from('players')
         .insert([{ 
@@ -61,12 +67,14 @@ exports.handler = async (event) => {
         }])
         .select();
 
-      if (error) {
-        console.error('❌ Insert error:', error);
-        throw error;
-      }
+      if (error) throw error;
 
-      console.log('✅ Player added to Supabase:', data[0]);
+      // Ook toevoegen aan shared array
+      sharedUsers.push({
+        ...newUser,
+        id: Date.now(),
+        source: 'shared'
+      });
 
       return {
         statusCode: 200,
@@ -74,28 +82,20 @@ exports.handler = async (event) => {
         body: JSON.stringify({ 
           success: true, 
           user: data[0],
-          message: 'Player synced to Supabase for other users'
+          message: 'User gedeeld met alle spelers'
         })
       };
     }
 
-    // Method not allowed
-    return {
-      statusCode: 405,
-      headers,
-      body: JSON.stringify({ error: 'Method not allowed' })
-    };
-
   } catch (error) {
-    console.error('❌ Function error:', error);
-    
+    console.error('Error:', error);
     return {
-      statusCode: 200, // 200 zelfs bij error
+      statusCode: 200,
       headers,
       body: JSON.stringify({ 
-        success: true, // ← altijd true voor frontend
-        users: [], // ← lege array
-        error: error.message
+        success: true, 
+        users: sharedUsers, // Fallback
+        error: error.message 
       })
     };
   }
