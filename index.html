@@ -1541,11 +1541,16 @@ function login() {
         }
         
         // Laad data
-        loadRoepnummers();
-        loadSpraakverzoeken();
-        loadDiscordKanalen();
-        updateRoepnummerSelect();
-        updateDienstStatus();
+  // Laad data
+loadRoepnummers();
+if (typeof loadSpraakverzoeken === 'function') {
+    loadSpraakverzoeken();
+} else {
+    console.log('⚠️ loadSpraakverzoeken functie niet gevonden');
+}
+loadDiscordKanalen();
+updateRoepnummerSelect();
+updateDienstStatus();
         
         // ✅ START REALTIME SYNC HIER
         startRealtimeSync();
@@ -1852,6 +1857,152 @@ async function addNewUser(event) {
                 container.appendChild(card);
             });
         }
+// ======================
+// LAAD SPRAAKVERZOEKEN
+// ======================
+function loadSpraakverzoeken() {
+    const container = document.getElementById('spraakLijst');
+    if (!container) return;
+    
+    container.innerHTML = '';
+    
+    if (spraakverzoeken.length === 0) {
+        container.innerHTML = '<p style="color: #88c1ff; text-align: center; padding: 20px;">Nog geen spraakverzoeken ingediend.</p>';
+        return;
+    }
+    
+    // Toon alleen laatste 10 meldingen
+    const recenteMeldingen = spraakverzoeken.slice(0, 10);
+    
+    recenteMeldingen.forEach(melding => {
+        const item = document.createElement('div');
+        item.className = 'spraak-item';
+        item.dataset.id = melding.id;
+        
+        // Bepaal CSS class op basis van status
+        if (melding.status === 'dispatched') item.classList.add('resolved');
+        else if (melding.status === 'declined') item.classList.add('resolved');
+        else if (melding.urgent) item.classList.add('urgent');
+        else if (melding.status === 'pending') item.classList.add('pending');
+        
+        // Bepaal prioriteit kleur
+        let prioClass = 'prio-3';
+        if (melding.prioriteit === 1) prioClass = 'prio-1';
+        else if (melding.prioriteit === 2) prioClass = 'prio-2';
+        
+        // Format tijd
+        const tijd = melding.tijd || new Date().toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+        const datum = melding.datum || new Date().toISOString().split('T')[0];
+        
+        item.innerHTML = `
+            <div class="spraak-header">
+                <div class="spraak-type">${melding.type}</div>
+                <div class="spraak-prio ${prioClass}">PRIO ${melding.prioriteit}</div>
+            </div>
+            <div class="spraak-details">
+                ${melding.bericht}
+            </div>
+            <div class="spraak-footer">
+                <div>
+                    <span>${getDienstNaam(melding.dienst)}</span>
+                    <span style="margin-left: 15px;">👤 ${melding.ingediendDoor || 'Onbekend'}</span>
+                </div>
+                <div>${tijd} • ${datum}</div>
+            </div>
+            
+            ${currentUser && (currentUser.role === 'admin' || currentUser.role === 'meldkamer') && melding.status === 'pending' ? `
+            <div class="melding-actions">
+                <button class="action-btn-small btn-accept" onclick="acceptMelding(${melding.id})">
+                    ✅ Accepteren
+                </button>
+                <button class="action-btn-small btn-dispatch" onclick="openDispatchModal(${melding.id})">
+                    🚨 Uitzenden
+                </button>
+                <button class="action-btn-small btn-decline" onclick="declineMelding(${melding.id})">
+                    ❌ Afwijzen
+                </button>
+                <button class="action-btn-small btn-ignore" onclick="ignoreMelding(${melding.id})">
+                    ➖ Negeren
+                </button>
+            </div>
+            ` : ''}
+            
+            ${melding.status === 'dispatched' ? `
+            <div style="margin-top: 10px; padding: 10px; background: rgba(243, 156, 18, 0.1); border-radius: 6px; border-left: 3px solid var(--warning);">
+                <span style="color: var(--warning); font-weight: bold;">🚨 Uitgezonden</span>
+                ${melding.uitgezondenEenheden ? `<span style="margin-left: 10px;">Eenheden: ${melding.uitgezondenEenheden.join(', ')}</span>` : ''}
+                ${melding.dispatchTijd ? `<span style="margin-left: 10px;">• ${melding.dispatchTijd}</span>` : ''}
+            </div>
+            ` : ''}
+        `;
+        
+        container.appendChild(item);
+    });
+}
+// ======================
+// UPDATE DIENST OPTIES (voor spraakverzoek form)
+// ======================
+function updateDienstOptions() {
+    const spraakType = document.getElementById('spraakType').value;
+    const dienstSelect = document.getElementById('spraakDienst');
+    
+    if (!spraakType) return;
+    
+    // Reset naar standaard opties
+    dienstSelect.innerHTML = `
+        <option value="">Selecteer dienst...</option>
+        <option value="alle">Alle Diensten</option>
+        <option value="politie">👮 Politie</option>
+        <option value="brandweer">🚒 Brandweer</option>
+        <option value="ambulance">🚑 Ambulance</option>
+        <option value="kmar">🪖 KMar</option>
+        <option value="dsi">🔫 DSI</option>
+        <option value="meldkamer">📡 Meldkamer</option>
+    `;
+    
+    // Voor bepaalde types, toon alleen relevante diensten
+    if (spraakType === 'URGENTIE' || spraakType === 'BIJSTAND') {
+        // Toon alle nood-diensten
+        dienstSelect.innerHTML = `
+            <option value="">Selecteer dienst...</option>
+            <option value="alle">Alle Diensten</option>
+            <option value="politie">👮 Politie</option>
+            <option value="brandweer">🚒 Brandweer</option>
+            <option value="ambulance">🚑 Ambulance</option>
+            <option value="kmar">🪖 KMar</option>
+            <option value="dsi">🔫 DSI</option>
+        `;
+    }
+    
+    // Voor INFO/STATUS, toon alleen meldkamer
+    if (spraakType === 'INFORMATIE' || spraakType === 'STATUS') {
+        dienstSelect.innerHTML = `
+            <option value="">Selecteer dienst...</option>
+            <option value="meldkamer">📡 Meldkamer</option>
+        `;
+    }
+}
+// ======================
+// ACCEPT MELDING
+// ======================
+function acceptMelding(meldingId) {
+    const melding = spraakverzoeken.find(m => m.id === meldingId);
+    if (!melding) return;
+    
+    melding.status = 'dispatched';
+    melding.dispatchTijd = new Date().toLocaleTimeString('nl-NL');
+    
+    // Update UI
+    loadSpraakverzoeken();
+    saveToLocalStorage();
+    
+    // Stuur naar Discord als webhook is ingesteld
+    if (discordSettings.webhookURL) {
+        sendMeldingToDiscord(melding, 'accepted');
+    }
+    
+    alert('✅ Melding geaccepteerd!');
+}
 
         // SUBMIT SPRAAKVERZOEK (ASYNC MET API)
         async function submitSpraakverzoek() {
@@ -1932,24 +2083,7 @@ async function addNewUser(event) {
                 submitBtn.disabled = false;
             }
         }
-        // ACCEPT MELDING
-        function acceptMelding(meldingId) {
-            const melding = spraakverzoeken.find(m => m.id === meldingId);
-            if (!melding) return;
-            
-            melding.status = 'dispatched';
-            
-            // Stuur naar Discord als webhook is ingesteld
-            if (discordSettings.webhookURL) {
-                sendMeldingToDiscord(melding, 'accepted');
-            }
-            
-            // Update UI
-            loadSpraakverzoeken();
-            saveToLocalStorage();
-            
-            alert('✅ Melding geaccepteerd!');
-        }
+      
 
         // OPEN DISPATCH MODAL
         function openDispatchModal(meldingId) {
