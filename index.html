@@ -1176,6 +1176,13 @@
     </div>
 
     <script>
+        function getAPIUrl(endpoint) {
+  // Gebruik altijd .netlify/functions
+  return `/.netlify/functions${endpoint}`;
+}
+
+
+
         // ======================
 // REALTIME SYNC FUNCTIES
 // ======================
@@ -1186,7 +1193,7 @@ let lastMeldingId = null;
 async function loadUsersFromServer() {
     try {
         console.log("📥 Gebruikers laden van server...");
-        const response = await fetch('/.netlify/functions/sync-users');
+        const response = await fetch(getAPIUrl('/sync-users'));
         const data = await response.json();
         
         if (data.users && data.users.length > 0) {
@@ -1291,36 +1298,35 @@ style.textContent = `
     }
 `;
 document.head.appendChild(style);
-// VOEG DEZE FUNCTIES TOE in je JavaScript:
 
 function testAllAPIs() {
-    console.log('🧪 Test alle APIs...');
-    
-    Promise.all([
-        fetch('/.netlify/functions/sync-users').then(r => r.json()),
-        fetch('/.netlify/functions/get-meldingen').then(r => r.json()),
-        fetch('/.netlify/functions/add-melding', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                type: 'TEST',
-                dienst: 'politie',
-                bericht: 'Test melding van API',
-                urgent: false,
-                prioriteit: 3,
-                tijd: new Date().toLocaleTimeString('nl-NL'),
-                datum: new Date().toISOString().split('T')[0]
-            })
-        }).then(r => r.json())
-    ])
-    .then(results => {
-        console.log('API Results:', results);
-        alert(`✅ Alle APIs werken!\n\nGebruikers: ${results[0].users?.length || 0}\nMeldingen: ${results[1].meldingen?.length || 0}`);
-    })
-    .catch(error => {
-        console.error('❌ API test mislukt:', error);
-        alert(`❌ API test mislukt:\n${error.message}`);
-    });
+  console.log('🧪 Test alle APIs...');
+  
+  Promise.all([
+    fetch(getAPIUrl('/sync-users')).then(r => r.json()),
+    fetch(getAPIUrl('/get-meldingen')).then(r => r.json()),
+    fetch(getAPIUrl('/add-melding'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        type: 'TEST',
+        dienst: 'politie',
+        bericht: 'Test melding van API',
+        urgent: false,
+        prioriteit: 3,
+        tijd: new Date().toLocaleTimeString('nl-NL'),
+        datum: new Date().toISOString().split('T')[0]
+      })
+    }).then(r => r.json())
+  ])
+  .then(results => {
+    console.log('API Results:', results);
+    alert(`✅ Alle APIs werken!\n\nGebruikers: ${results[0].users?.length || 0}\nMeldingen: ${results[1].meldingen?.length || 0}`);
+  })
+  .catch(error => {
+    console.error('❌ API test mislukt:', error);
+    alert(`❌ API test mislukt:\n${error.message}`);
+  });
 }
 
 function forceReloadData() {
@@ -1344,7 +1350,7 @@ async function loadMeldingenFromAPI() {
     try {
         console.log("📥 Meldingen laden van API...");
         
-        const response = await fetch('/.netlify/functions/get-meldingen');
+        const response = await fetch(getAPIUrl('/get-meldingen'));
         const data = await response.json();
         
         if (data.meldingen && data.meldingen.length > 0) {
@@ -1370,7 +1376,7 @@ async function loadMeldingenFromAPI() {
 // FUNCTIE: MELDING TOEVOEGEN VIA API
 async function addMeldingViaAPI(meldingData) {
     try {
-        const response = await fetch('/.netlify/functions/add-melding', {
+            const response = await fetch(getAPIUrl('/add-melding'), { // ← NIEUWE URL
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(meldingData)
@@ -1645,37 +1651,37 @@ async function addNewUser(event) {
     submitBtn.disabled = true;
 
     try {
-        // 1. Stuur naar server (NU kan iedereen deze gebruiker zien)
-        const serverResult = await fetch('/.netlify/functions/sync-users', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(newUser)
-        });
+    // 1. Stuur naar Supabase
+    const response = await fetch(getAPIUrl('/sync-users'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newUser)
+    });
+    
+    const result = await response.json();  // ← CORRECT
+    
+    if (response.ok && result.success) {  // ← CORRECT: gebruik response, niet serverResult
+        // 2. Voeg lokaal toe
+        users.push(newUser);
         
-        const result = await serverResult.json();
+        // 3. Update UI
+        updateUsersList();
+        updateRoepnummersFromUsers();
+        updateRoepnummerSelect();
         
-        if (serverResult.ok && result.success) {
-            // 2. Voeg lokaal toe
-            users.push(newUser);
-            
-            // 3. Update UI
-            updateUsersList();
-            updateRoepnummersFromUsers();
-            updateRoepnummerSelect();
-            
-            // 4. Reset form
-            document.getElementById('addUserForm').reset();
-            
-            // 5. Sla op
-            saveToLocalStorage();
-            
-            alert(`✅ ${name} toegevoegd!\n\nAndere spelers kunnen NU inloggen met deze account!`);
-            
-        } else {
-            throw new Error(result.error || 'Server error');
-        }
+        // 4. Reset form
+        document.getElementById('addUserForm').reset();
         
-    } catch (error) {
+        // 5. Sla op
+        saveToLocalStorage();
+        
+        alert(`✅ ${name} toegevoegd!\n\nAndere spelers kunnen NU inloggen met deze account!`);
+        
+    } else {
+        throw new Error(result.error || 'Server error');
+    }
+    
+} catch (error) {
         console.error('Server sync mislukt:', error);
         
         // Fallback: alleen lokaal toevoegen
@@ -2859,29 +2865,57 @@ function forceReloadData() {
     // ======================
     
     // Auto-sync meldingen elke 30 seconden
-    setInterval(() => {
-        if (currentUser && currentUser.role === 'admin') {
-            loadMeldingenFromAPI();
-        }
-    }, 30000);
+setInterval(() => {
+  if (currentUser && currentUser.role === 'admin') {
+    // Gebruik getAPIUrl helper
+    loadMeldingenFromAPI();
+  }
+}, 30000);
     
     
     // Voeg de testMeldingenAPI functie hier toe (binnen dezelfde <script> tag)
-    async function testMeldingenAPI() {
-        try {
-            // Test get-meldingen
-            const response = await fetch('/.netlify/functions/get-meldingen');
-            const data = await response.json();
-            
-            console.log("📊 API Response:", data);
-            
-            alert(`✅ API werkt!\nGebruikers: ${data.users.length}\nMeldingen: ${data.meldingen?.length || 0}`);
-            
-        } catch (error) {
-            console.error("❌ API test failed:", error);
-            alert(`❌ API test mislukt:\n${error.message}`);
-        }
+async function testMeldingenAPI() {
+  try {
+    // VERANDER HIER:
+    const response = await fetch(getAPIUrl('/get-meldingen'));
+    const data = await response.json();
+    
+    console.log("📊 API Response:", data);
+    
+    alert(`✅ API werkt!\nGebruikers: ${data.users?.length || 0}\nMeldingen: ${data.meldingen?.length || 0}`);
+    
+  } catch (error) {
+    console.error("❌ API test failed:", error);
+    alert(`❌ API test mislukt:\n${error.message}`);
+  }
+}
+// Test Supabase connectie
+async function testSupabaseConnection() {
+  try {
+    console.log('🔗 Test Supabase connectie...');
+    const response = await fetch(getAPIUrl('/sync-users'));
+    const data = await response.json();
+    
+    if (data.success) {
+      console.log(`✅ Supabase werkt! ${data.users?.length || 0} spelers gevonden`);
+      return true;
+    } else {
+      console.error('❌ API error:', data.error);
+      return false;
     }
+  } catch (error) {
+    console.error('❌ Netwerk error:', error);
+    return false;
+  }
+}
+
+// Test bij opstarten
+setTimeout(() => {
+  if (currentUser) {
+    testSupabaseConnection();
+  }
+}, 2000);
     </script>
 </body>
 </html>
+

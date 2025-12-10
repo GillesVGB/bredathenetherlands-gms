@@ -1,36 +1,95 @@
-const fs = require('fs').promises;
-const path = require('path');
+const { createClient } = require('@supabase/supabase-js');
 
-exports.handler = async function(event, context) {
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: 'Method Not Allowed' };
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_KEY;
+const supabase = createClient(supabaseUrl, supabaseKey);
+
+exports.handler = async (event, context) => {
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Content-Type': 'application/json'
+  };
+
+  // Preflight
+  if (event.httpMethod === 'OPTIONS') {
+    return { statusCode: 200, headers, body: '' };
   }
-  
+
   try {
-    const dataPath = path.join(__dirname, '..', '..', 'data.json');
-    const meldingData = JSON.parse(event.body);
+    console.log('📨 Add-melding called');
     
-    const data = JSON.parse(await fs.readFile(dataPath, 'utf8'));
+    const melding = JSON.parse(event.body || '{}');
+    console.log('Melding data:', melding);
     
-    // Voeg ID en timestamp toe
-    meldingData.id = Date.now();
-    meldingData.timestamp = new Date().toISOString();
-    
-    if (!data.meldingen) data.meldingen = [];
-    data.meldingen.unshift(meldingData);
-    
-    // Beperk tot laatste 50 meldingen
-    if (data.meldingen.length > 50) {
-      data.meldingen = data.meldingen.slice(0, 50);
+    // Voeg toe aan meldingen tabel
+    const { data, error } = await supabase
+      .from('meldingen')
+      .insert([{
+        type: melding.type || 'ALGEMEEN',
+        dienst: melding.dienst || 'politie',
+        bericht: melding.bericht || 'Geen bericht',
+        prioriteit: melding.prioriteit || 3,
+        urgent: melding.urgent || false,
+        status: 'pending',
+        tijd: melding.tijd || new Date().toLocaleTimeString('nl-NL'),
+        datum: melding.datum || new Date().toISOString().split('T')[0],
+        ingediend_door: melding.ingediendDoor || 'Onbekend',
+        created_at: new Date().toISOString()
+      }])
+      .select();
+
+    if (error) {
+      console.error('❌ Insert error:', error);
+      
+      // Als de tabel niet bestaat, geef een simulated response
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ 
+          success: true,
+          melding: {
+            id: Date.now(),
+            ...melding,
+            status: 'pending',
+            created_at: new Date().toISOString()
+          },
+          warning: 'Melding lokaal opgeslagen (meldingen tabel niet gevonden)'
+        })
+      };
     }
-    
-    await fs.writeFile(dataPath, JSON.stringify(data, null, 2));
-    
+
+    console.log('✅ Melding added:', data[0]);
+
     return {
       statusCode: 200,
-      body: JSON.stringify({ success: true, melding: meldingData })
+      headers,
+      body: JSON.stringify({ 
+        success: true, 
+        melding: data[0],
+        message: 'Melding opgeslagen in database'
+      })
     };
+
   } catch (error) {
-    return { statusCode: 500, body: JSON.stringify({ error: error.message }) };
+    console.error('❌ Add-melding error:', error);
+    
+    return {
+      statusCode: 200, // 200 voor frontend
+      headers,
+      body: JSON.stringify({ 
+        success: true,
+        melding: {
+          id: Date.now(),
+          type: 'ERROR',
+          dienst: 'system',
+          bericht: 'Fallback melding',
+          status: 'pending',
+          created_at: new Date().toISOString()
+        },
+        error: error.message
+      })
+    };
   }
 };

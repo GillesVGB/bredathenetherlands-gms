@@ -1,0 +1,36 @@
+[build]
+  # Je hebt geen build stap nodig, het is statische HTML
+  publish = "."
+  functions = "netlify/functions"
+
+[build.environment]
+  # Node.js versie
+  NODE_VERSION = "18"
+
+# Redirects - zorg dat alles naar index.html gaat voor SPA
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Voor functions routing (optioneel, maar netjes)
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# Headers voor security
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# Headers voor functions (CORS)
+[[headers]]
+  for = "/.netlify/functions/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET, POST, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type"
