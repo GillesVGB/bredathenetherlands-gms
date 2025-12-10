@@ -1108,7 +1108,9 @@
         <button onclick="testLogin()" class="action-btn secondary" style="width: auto; margin-left: 10px;">
             🐛 Test Gebruikers
         </button>
-        
+        <button onclick="debugUsers()" class="action-btn secondary" style="width: auto; margin-left: 10px;">
+    🐛 Debug Users
+</button>
         <!-- NIEUWE TEST KNOppen -->
         <button onclick="testMeldingenAPI()" class="action-btn secondary" style="width: auto; margin-left: 10px;">
             🧪 Test Meldingen API
@@ -1192,36 +1194,26 @@ let lastMeldingId = null;
 
 async function loadUsersFromServer() {
     try {
-        console.log("📥 Gebruikers laden van server...");
+        console.log("📥 Sync met server...");
         const response = await fetch(getAPIUrl('/sync-users'));
         const data = await response.json();
         
+        console.log("✅ Server sync response:", data);
+        
+        // WIJZIGING: Gebruik de server data NIET voor lokale users!
+        // Alleen voor debugging/logging
         if (data.users && data.users.length > 0) {
-            console.log(`✅ ${data.users.length} gebruikers van server`);
-            
-            data.users.forEach(serverUser => {
-                const localIndex = users.findIndex(u => u.email === serverUser.email);
-                
-                if (localIndex === -1) {
-                    // Nieuwe gebruiker
-                    users.push(serverUser);
-                    console.log('➕ Nieuwe gebruiker:', serverUser.email);
-                } else {
-                    // Update status van bestaande
-                    users[localIndex].status = serverUser.status;
-                }
-            });
-            
-            updateUsersList();
-            updateRoepnummersFromUsers();
-            updateRoepnummerSelect();
-            saveToLocalStorage();
+            console.log(`ℹ️ ${data.users.length} spelers op server`);
         }
+        
+        // Sla gewoon lokaal op
+        saveToLocalStorage();
+        
     } catch (error) {
-        console.error('❌ Fout bij laden gebruikers:', error);
+        console.error('❌ Fout bij server sync:', error);
+        // Geen probleem, gebruik lokale data
     }
 }
-
 function startRealtimeSync() {
     if (syncInterval) clearInterval(syncInterval);
     
@@ -1327,6 +1319,16 @@ function testAllAPIs() {
     console.error('❌ API test mislukt:', error);
     alert(`❌ API test mislukt:\n${error.message}`);
   });
+}
+// Debug: reset en toon gebruikers
+function debugUsers() {
+    console.log("=== DEBUG USERS ===");
+    console.log("Lokale users:", users);
+    console.log("Current user:", currentUser);
+    
+    // Toon in alert
+    const userList = users.map(u => `${u.email} (${u.name}) - ${u.password}`).join('\n');
+    alert(`Gebruikers in systeem:\n${userList}`);
 }
 
 function forceReloadData() {
@@ -1517,8 +1519,16 @@ function login() {
         return;
     }
 
-    const user = users.find(u => u.email === email && u.password === password);
-    
+console.log("🔍 Login attempt for:", email);
+console.log("Lokale users:", users.map(u => ({ email: u.email, pass: u.password })));
+
+const user = users.find(u => u.email === email && u.password === password);
+
+if (!user) {
+    console.log("❌ Geen gebruiker gevonden of wachtwoord incorrect");
+    alert('Ongeldige login gegevens');
+    return;
+}    
     if (user) {
         currentUser = user;
         
@@ -1562,7 +1572,6 @@ updateDienstStatus();
         
         // ✅ LAAD DATA VAN SERVER NA LOGIN
         setTimeout(() => {
-            loadUsersFromServer();
             loadMeldingenFromAPI();
         }, 1000);
         

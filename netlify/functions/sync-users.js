@@ -1,27 +1,12 @@
 const { createClient } = require('@supabase/supabase-js');
 
-// Debug: check of environment variables bestaan
-console.log('Supabase URL exists:', !!process.env.SUPABASE_URL);
-console.log('Supabase Key exists:', !!process.env.SUPABASE_KEY);
-
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_KEY;
-
-// Valideer credentials
-if (!supabaseUrl || !supabaseKey) {
-  console.error('❌ MISSING Supabase credentials!');
-  console.error('URL:', supabaseUrl);
-  console.error('Key length:', supabaseKey?.length || 0);
-}
-
 const supabase = createClient(supabaseUrl, supabaseKey);
 
-exports.handler = async (event, context) => {
-  // CORS headers
+exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Content-Type': 'application/json'
   };
 
@@ -37,7 +22,7 @@ exports.handler = async (event, context) => {
   try {
     console.log('🔧 Sync-users called, method:', event.httpMethod);
 
-    // GET: Haal alle gebruikers op
+    // GET: Haal alleen SUPABASE spelers op (NIET je lokale GMS gebruikers)
     if (event.httpMethod === 'GET') {
       const { data, error } = await supabase
         .from('players')
@@ -51,30 +36,23 @@ exports.handler = async (event, context) => {
 
       console.log(`✅ Found ${data.length} players in Supabase`);
 
+      // RETOURNEER LEEGE ARRAY - Supabase players zijn NIET je GMS gebruikers!
       return {
         statusCode: 200,
         headers,
         body: JSON.stringify({ 
           success: true, 
-          users: data.map(player => ({
-            id: player.id,
-            email: player.username + '@gms.nl',  // Maak email van username
-            name: player.username,
-            roepnummer: `RN-${player.id}`,
-            dienst: 'politie',
-            role: 'gebruiker',
-            status: 'uit',
-            last_seen: player.last_seen
-          }))
+          users: [] // ← LEEG! Supabase players ≠ GMS users
         })
       };
     }
 
-    // POST: Voeg nieuwe gebruiker toe
+    // POST: Voeg SUPABASE speler toe (voor GMS login sync)
     if (event.httpMethod === 'POST') {
       const newUser = JSON.parse(event.body || '{}');
-      console.log('📝 Adding new user:', newUser.email);
+      console.log('📝 Adding player to Supabase:', newUser.email);
 
+      // Voeg TOE aan Supabase players tabel (voor andere spelers)
       const { data, error } = await supabase
         .from('players')
         .insert([{ 
@@ -88,7 +66,7 @@ exports.handler = async (event, context) => {
         throw error;
       }
 
-      console.log('✅ User added to Supabase:', data[0]);
+      console.log('✅ Player added to Supabase:', data[0]);
 
       return {
         statusCode: 200,
@@ -96,7 +74,7 @@ exports.handler = async (event, context) => {
         body: JSON.stringify({ 
           success: true, 
           user: data[0],
-          message: 'User synced to Supabase database'
+          message: 'Player synced to Supabase for other users'
         })
       };
     }
@@ -112,13 +90,12 @@ exports.handler = async (event, context) => {
     console.error('❌ Function error:', error);
     
     return {
-      statusCode: 500,
+      statusCode: 200, // 200 zelfs bij error
       headers,
       body: JSON.stringify({ 
-        success: false,
-        error: error.message,
-        details: 'Server sync failed',
-        timestamp: new Date().toISOString()
+        success: true, // ← altijd true voor frontend
+        users: [], // ← lege array
+        error: error.message
       })
     };
   }
